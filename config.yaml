@@ -163,6 +163,23 @@ extraction:
     最终诊断: T
 
 
+# =============================================================================
+# 自定义后端适配（可选）
+# 启用后将替代默认 vLLM 后端，请求/响应适配集中在 backend_adapter.py
+# =============================================================================
+custom_backend:
+  enabled: false                # 默认 false，使用原生 vLLM 流程
+  base_url: ""                  # 自定义后端地址（也支持环境变量 CUSTOM_BACKEND_URL）
+  model_name: "custom-backend"  # 自定义后端模型标识
+  timeout_seconds: 60           # 请求超时秒数
+
+# 外部提示词文件（可选）
+# 配置路径后将从文件读取 prompt，覆盖 config.yaml 中的默认值
+# 文件不存在时会报错，不会静默回退
+prompts:
+  ocr_prompt_path: ""           # OCR system/user prompt 文件路径
+  extraction_prompt_path: ""    # 结构化提取 prompt 文件路径
+
 # 增量监控配置
 monitor:
   enabled: true                 # 是否启用增量监控

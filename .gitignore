@@ -21,6 +21,11 @@ input/*
 # Large files / Docker images
 *.tar
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
 # OS generated files
 .DS_Store
 Thumbs.db

@@ -23,9 +23,10 @@ from pathlib import Path
 from datetime import datetime
 
 import yaml
-from openai import OpenAI
 from PIL import Image
 from tqdm import tqdm
+
+import backend_adapter
 
 # =============================================================================
 # 全局时间戳日志拦截器
@@ -66,25 +67,9 @@ def load_config(config_path: str = "/workspace/config.yaml") -> dict:
 
 
 # =============================================================================
-# vLLM Client 初始化
+# 后端客户端创建（委托给 backend_adapter）
+# 默认使用 vLLM，可选启用自定义后端
 # =============================================================================
-
-def create_client(server_url: str) -> OpenAI:
-    """创建 OpenAI 兼容客户端 (连接 vLLM Server)"""
-    print(f"[INFO] 连接 vLLM Server: {server_url}")
-    client = OpenAI(
-        base_url=server_url,
-        api_key="not-needed",  # vLLM 不需要 API key
-    )
-    return client
-
-
-def get_model_name(client: OpenAI) -> str:
-    """从 vLLM Server 获取加载的模型名称"""
-    models = client.models.list()
-    model_name = models.data[0].id
-    print(f"[INFO] 模型: {model_name}")
-    return model_name
 
 
 # =============================================================================
@@ -141,8 +126,7 @@ def pdf_to_images(pdf_path: str, dpi: int = 200) -> list:
 # =============================================================================
 
 def ocr_image(
-    client: OpenAI,
-    model_name: str,
+    backend,
     image_path: str,
     config: dict,
 ) -> str:
@@ -151,7 +135,11 @@ def ocr_image(
     inference = config.get("inference", {})
 
     system_prompt = ocr_config.get("system_prompt", "请识别图片中的所有文字内容。")
-    user_prompt = ocr_config.get("user_prompt", "请识别这张图片中的所有文字内容。")
+    user_prompt = backend_adapter.load_prompt(
+        config, "ocr_prompt_path",
+        ocr_config.get("user_prompt", "请识别这张图片中的所有文字内容。"),
+        "OCR_PROMPT_PATH",
+    )
 
     # 编码图片
     base64_image = encode_image_to_base64(image_path)
@@ -176,27 +164,7 @@ def ocr_image(
         },
     ]
 
-    # 是否启用原生思考模式
-    thinking_enabled = inference.get("thinking_enabled", False)
-    extra_body = {
-        "top_k": inference.get("top_k", 20),
-        "min_p": inference.get("min_p", 0.0),
-        "repetition_penalty": inference.get("repetition_penalty", 1.0),
-    }
-    if not thinking_enabled:
-        extra_body["chat_template_kwargs"] = {"enable_thinking": False}
-
-    response = client.chat.completions.create(
-        model=model_name,
-        messages=messages,
-        temperature=inference.get("temperature", 0.0),
-        max_tokens=inference.get("max_tokens", 4096),
-        top_p=inference.get("top_p", 0.95),
-        presence_penalty=inference.get("presence_penalty", 0.0),
-        extra_body=extra_body,
-    )
-
-    return response.choices[0].message.content
+    return backend.chat_completion(messages, inference)
 
 
 def build_schema_template(extraction: dict) -> str:
@@ -300,8 +268,7 @@ def restore_compact_output(data, anchor_map: dict):
 # =============================================================================
 
 def extract_structured(
-    client: OpenAI,
-    model_name: str,
+    backend,
     ocr_text: str,
     config: dict,
 ) -> dict:
@@ -313,7 +280,11 @@ def extract_structured(
         return None
 
     system_prompt = extraction.get("system_prompt", "从文本中提取结构化信息。")
-    user_prompt_template = extraction.get("user_prompt_template", "请提取信息：\n{text}")
+    user_prompt_template = backend_adapter.load_prompt(
+        config, "extraction_prompt_path",
+        extraction.get("user_prompt_template", "请提取信息：\n{text}"),
+        "EXTRACTION_PROMPT_PATH",
+    )
 
     schema_template = build_schema_template(extraction)
 
@@ -321,18 +292,18 @@ def extract_structured(
     import re
     # 增加对英文句号、中英文冒号的切分，防止大段无标点文本（如诊断列表）没有锚点，同时去掉空格切分以防标签过多
     parts = re.split(r'([。！？\n，,；;.:：]+)', ocr_text)
-    
+
     anchored_text = ""
     anchor_map = {}
     anchor_idx = 1
     current_chunk = ""
-    
+
     for i in range(0, len(parts), 2):
         chunk = parts[i]
         punct = parts[i+1] if i+1 < len(parts) else ""
-        
+
         current_chunk += chunk + punct
-        
+
         if current_chunk.strip():
             tag = f"<s{anchor_idx}>"
             # 标签放在前面：<s1>内容
@@ -347,10 +318,11 @@ def extract_structured(
 
     numbered_text = anchored_text
 
-    # 格式化 user prompt
-    user_prompt = user_prompt_template.format(
-        text=numbered_text,
-        schema_template=schema_template,
+    # 只替换约定占位符，避免外部 prompt 中的 JSON 示例花括号触发 str.format 解析。
+    user_prompt = (
+        user_prompt_template
+        .replace("{schema_template}", schema_template)
+        .replace("{text}", numbered_text)
     )
 
     messages = [
@@ -358,28 +330,7 @@ def extract_structured(
         {"role": "user", "content": user_prompt},
     ]
 
-    # 是否启用原生思考模式
-    thinking_enabled = inference.get("thinking_enabled", False)
-    extra_body = {
-        "top_k": inference.get("top_k", 20),
-        "min_p": inference.get("min_p", 0.0),
-        "repetition_penalty": inference.get("repetition_penalty", 1.0),
-    }
-    if not thinking_enabled:
-        extra_body["chat_template_kwargs"] = {"enable_thinking": False}
-
-    response = client.chat.completions.create(
-        model=model_name,
-        messages=messages,
-        temperature=inference.get("temperature", 0.0),
-        max_tokens=inference.get("max_tokens", 4096),
-        top_p=inference.get("top_p", 0.95),
-        presence_penalty=inference.get("presence_penalty", 0.0),
-        extra_body=extra_body,
-        stream=False,
-    )
-
-    raw_response = response.choices[0].message.content
+    raw_response = backend.chat_completion(messages, inference)
 
     # 尝试解析 JSON
     try:
@@ -452,7 +403,7 @@ def scan_input_dir(input_dir: str, supported_ext: list) -> dict:
 # =============================================================================
 
 def process_single_file_qwen(
-    client,
+    backend,
     model_name: str,
     file_path: Path,
     output_dir: Path,
@@ -467,33 +418,33 @@ def process_single_file_qwen(
 
     try:
         layout_config = config.get("layout_analysis", {})
-        
+
         if layout_config.get("enabled", False):
             # 版面分析模式：先检测区域 → 裁切子图 → 逐个 OCR → 按阅读顺序拼接
             from layout_analyzer import analyze_layout, crop_regions
-            
+
             regions = analyze_layout(
                 file_path,
                 min_score=layout_config.get("min_score", 0.5),
                 target_labels=layout_config.get("target_labels"),
             )
-            
+
             if len(regions) > 1:
                 # 有多个区域，裁切后逐个 OCR
                 layout_crop_dir = file_output_dir / "_layout_crops"
                 sub_images = crop_regions(file_path, regions, layout_crop_dir)
                 texts = []
                 for sub_img in sub_images:
-                    text = ocr_image(client, model_name, str(sub_img), config)
+                    text = ocr_image(backend, str(sub_img), config)
                     if text and text.strip():
                         texts.append(text.strip())
                 ocr_text = "\n\n".join(texts)
             else:
                 # 只有一个区域或未检测到，走整图 OCR
-                ocr_text = ocr_image(client, model_name, str(file_path), config)
+                ocr_text = ocr_image(backend, str(file_path), config)
         else:
             # 未启用版面分析，走原有整图 OCR 逻辑
-            ocr_text = ocr_image(client, model_name, str(file_path), config)
+            ocr_text = ocr_image(backend, str(file_path), config)
 
         # 保存结果（纯净文本，不附加任何元数据）
         combined_ocr_path = file_output_dir / "ocr_result.md"
@@ -540,7 +491,7 @@ def process_single_file_qwen(
 # 全局合并与统一结构化抽取
 # =============================================================================
 
-def merge_results(client: OpenAI, model_name: str, config: dict, output_dir: Path, results: list, output_formats: list):
+def merge_results(backend, model_name: str, config: dict, output_dir: Path, results: list, output_formats: list):
     """合并所有 OCR 结果，并在长文本上进行统一全局抽取"""
     # 修复并发导致的乱序问题：合并前根据文件名重新排序
     results = sorted(results, key=lambda x: x["file"])
@@ -594,7 +545,7 @@ def merge_results(client: OpenAI, model_name: str, config: dict, output_dir: Pat
             print(f"\n[后台任务] 开始对 {grp_name} 进行全局 JSON 抽取 (文本长度: {len(full_text)} 字)...")
             start_ext = time.time()
             try:
-                global_structured = extract_structured(client, model_name, full_text, config)
+                global_structured = extract_structured(backend, full_text, config)
                 ext_time = time.time() - start_ext
                 print(f"\n[后台任务] ✅ {grp_name} 的 JSON 抽取成功！(耗时: {ext_time:.1f} 秒)")
             except Exception as e:
@@ -751,20 +702,21 @@ def main():
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # vLLM Server URL
-    server_url = os.environ.get("VLLM_SERVER_URL", "http://vllm-server:8000/v1")
-
-    # 等待 vLLM Server
-    if not wait_for_vlm_server(server_url):
-        print("[FATAL] 无法连接 vLLM Server, 退出")
-        sys.exit(1)
+    # 后端选择：默认 vLLM，可选自定义后端（见 config.yaml custom_backend）
+    custom_backend_config = config.get("custom_backend", {})
+    if not custom_backend_config.get("enabled", False):
+        # 默认路径：等待 vLLM Server 就绪
+        server_url = os.environ.get("VLLM_SERVER_URL", "http://vllm-server:8000/v1")
+        if not wait_for_vlm_server(server_url):
+            print("[FATAL] 无法连接 vLLM Server, 退出")
+            sys.exit(1)
 
     ocr_backend = "qwen-vl"
     print(f"\n[INFO] 使用 {ocr_backend} 作为 OCR 后端")
 
-    # 同时初始化 OpenAI 客户端
-    client = create_client(server_url)
-    model_name = get_model_name(client)
+    # 通过适配器创建后端客户端（默认 vLLM，或自定义后端）
+    backend = backend_adapter.create_backend(config)
+    model_name = backend.get_model_name()
 
     # 扫描文件并按目录分组
     grouped_files = scan_input_dir(input_dir, supported_ext)
@@ -845,9 +797,9 @@ def main():
             # 流水线阶段 1: CPU 本地计算 OpenCV 图像预处理
             cv2_file = preprocess_single_image(orig_file, temp_dir)
             
-            # 流水线阶段 2: 组装网络请求发送到 GPU vLLM
+            # 流水线阶段 2: 组装网络请求发送到后端（vLLM 或自定义）
             res = process_single_file_qwen(
-                client, model_name, cv2_file, group_output_dir, config
+                backend, model_name, cv2_file, group_output_dir, config
             )
             res["file"] = orig_file.name
             return orig_file, res
@@ -900,7 +852,7 @@ def main():
                                 results.sort(key=lambda x: x.get("file", ""))
                                 # 丢入后台 JSON 抽取队列 (受节流阀控制)
                                 extraction_executor.submit(
-                                    extraction_task_with_semaphore, client, model_name, config, t["group_output_dir"], results, output_formats
+                                    extraction_task_with_semaphore, backend, model_name, config, t["group_output_dir"], t["results"], output_formats
                                 )
                 return callback
                 
