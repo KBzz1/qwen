@@ -177,8 +177,10 @@ custom_backend:
 # 配置路径后将从文件读取 prompt，覆盖 config.yaml 中的默认值
 # 文件不存在时会报错，不会静默回退
 prompts:
-  ocr_prompt_path: ""           # OCR system/user prompt 文件路径
-  extraction_prompt_path: ""    # 结构化提取 prompt 文件路径
+  ocr_system_prompt_path: ""        # OCR system prompt 文件路径
+  ocr_prompt_path: ""               # OCR user prompt 文件路径
+  extraction_system_prompt_path: "" # 结构化提取 system prompt 文件路径
+  extraction_prompt_path: ""        # 结构化提取 user prompt 模板路径
 
 # 增量监控配置
 monitor:

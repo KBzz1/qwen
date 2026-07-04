@@ -1,0 +1,84 @@
+# Manzufei OCR optional example config
+#
+# This file shows how to enable the optional backend adapter and the medical
+# admission-record prompts without changing the default config.yaml behavior.
+# Copy the relevant sections into config.yaml, then adjust placeholders.
+
+custom_backend:
+  enabled: true
+  base_url: "http://your-backend.example"
+  model_name: "custom-backend"
+  timeout_seconds: 60
+
+prompts:
+  ocr_system_prompt_path: ""
+  ocr_prompt_path: "./prompts/medical_admission_ocr_user_prompt.txt"
+  extraction_system_prompt_path: "./prompts/medical_admission_extraction_system_prompt.txt"
+  extraction_prompt_path: "./prompts/medical_admission_extraction_user_prompt_template.txt"
+
+extraction:
+  enabled: true
+  schema_template:
+    主诉: T
+
+    现病史:
+      初次发病情况: T
+      后续发病情况: T
+      院内诊断情况: T
+      治疗药物: T
+      近期症状: T
+      精神睡眠食欲: J
+      大便情况: T
+      小便情况: J
+      体重变化: T
+
+    既往史:
+      心脏病: T
+      高血压: T
+      糖尿病: T
+      乙肝: J
+      便血: T
+      肾炎: J
+      血液病: J
+      冠心病: J
+      脑梗塞: J
+      手术史: J
+      输血史: J
+      血制品史: J
+      过敏史: J
+
+    个人史:
+      工作: T
+      吸烟史: T
+      饮酒史: T
+
+    家族史: T
+
+    体格检查:
+      生命体征: T
+      身高体重BMI: T
+      皮肤: J
+      眼部: J
+      耳部: J
+      鼻部: J
+      口腔: J
+      颈部: J
+      胸部: T
+      呼吸: T
+      心律: T
+      腹部: J
+      四肢: J
+      神经: J
+
+    辅助检查:
+      胸部CT: T
+      心脏超声: T
+      血气: T
+      CRP: T
+      血常规: T
+      电解质: J
+      肾功: J
+      D2聚体: J
+
+    初步诊断: T
+    最终诊断: T

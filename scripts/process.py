@@ -134,7 +134,11 @@ def ocr_image(
     ocr_config = config.get("ocr", {})
     inference = config.get("inference", {})
 
-    system_prompt = ocr_config.get("system_prompt", "请识别图片中的所有文字内容。")
+    system_prompt = backend_adapter.load_prompt(
+        config, "ocr_system_prompt_path",
+        ocr_config.get("system_prompt", "请识别图片中的所有文字内容。"),
+        "OCR_SYSTEM_PROMPT_PATH",
+    )
     user_prompt = backend_adapter.load_prompt(
         config, "ocr_prompt_path",
         ocr_config.get("user_prompt", "请识别这张图片中的所有文字内容。"),
@@ -279,7 +283,11 @@ def extract_structured(
     if not extraction.get("enabled", True):
         return None
 
-    system_prompt = extraction.get("system_prompt", "从文本中提取结构化信息。")
+    system_prompt = backend_adapter.load_prompt(
+        config, "extraction_system_prompt_path",
+        extraction.get("system_prompt", "从文本中提取结构化信息。"),
+        "EXTRACTION_SYSTEM_PROMPT_PATH",
+    )
     user_prompt_template = backend_adapter.load_prompt(
         config, "extraction_prompt_path",
         extraction.get("user_prompt_template", "请提取信息：\n{text}"),

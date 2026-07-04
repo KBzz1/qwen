@@ -1,0 +1,8 @@
+schema_template:
+{schema_template}
+
+<病历原文>
+{text}
+</病历原文>
+
+JSON:

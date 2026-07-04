@@ -67,6 +67,7 @@ services:
       - ./input:/workspace/input
       - ./${OUTPUT_DIR:-output}:/workspace/output
       - ./config.yaml:/workspace/config.yaml:ro
+      - ./prompts:/workspace/prompts:ro
       - ./scripts:/workspace/scripts:ro
       - ./logs:/workspace/logs
     depends_on:
@@ -94,6 +95,7 @@ services:
       - ./input:/workspace/input
       - ./${OUTPUT_DIR:-output}:/workspace/output
       - ./config.yaml:/workspace/config.yaml:ro
+      - ./prompts:/workspace/prompts:ro
       - ./scripts:/workspace/scripts:ro
       - ./logs:/workspace/logs
     depends_on:
